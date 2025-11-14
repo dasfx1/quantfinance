@@ -4,8 +4,8 @@ import os
 from itertools import product
 from typing import Dict, Iterable, List, Sequence
 
-from data_loader import get_data, is_dataframe, load_price_bars
-from mean_reversion import MeanReversion, MeanReversionParams, run_mean_reversion
+from notebooks.data_loader.data_loader import get_data, is_dataframe, load_price_bars
+from notebooks.strategies.mean_reversion import MeanReversion, MeanReversionParams, run_mean_reversion
 
 try:
     import backtrader as bt

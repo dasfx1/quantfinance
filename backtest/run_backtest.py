@@ -1,5 +1,5 @@
-from data_loader import get_data
-from mean_reversion import MeanReversion
+from notebooks.data_loader.data_loader import get_data
+from notebooks.strategies.mean_reversion import MeanReversion
 import backtrader as bt
 import pandas as pd
 
