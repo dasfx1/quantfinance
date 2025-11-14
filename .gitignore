@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+
+# Jupyter/IPython
+.ipynb_checkpoints/
+
+# PyCharm
+.idea/
+
+# Ergebnis-/Logdateien (optional)
+results/*.csv
+*.log
+
+# Temporäres
+*.tmp
+*.bak
+*.swp
