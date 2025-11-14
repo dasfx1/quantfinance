@@ -38,10 +38,10 @@ if bt is not None:  # pragma: no cover - exercised only when backtrader availabl
 
         params = (
             ("period", 20),
-            ("z_entry", 1.5),
+            ("z_entry", 2),
             ("z_exit", 0.5),
-            ("sl_distance", 2.0),
-            ("tp_distance", 4.0),
+            ("sl_distance", 1.0),
+            ("tp_distance", 2.0),
         )
 
         def __init__(self) -> None:

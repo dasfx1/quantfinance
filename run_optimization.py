@@ -1,14 +1,16 @@
+
 import csv
+import os
 from itertools import product
 from typing import Dict, Iterable, List, Sequence
 
 from data_loader import get_data, is_dataframe, load_price_bars
 from mean_reversion import MeanReversion, MeanReversionParams, run_mean_reversion
 
-try:  # pragma: no cover - optional dependency
-    import backtrader as bt  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - executed when backtrader missing
-    bt = None  # type: ignore
+try:
+    import backtrader as bt
+except ModuleNotFoundError:
+    bt = None
 
 
 def _format_table(rows: Sequence[Dict[str, object]]) -> None:
@@ -32,7 +34,14 @@ def _format_table(rows: Sequence[Dict[str, object]]) -> None:
 
 def _write_csv(rows: Sequence[Dict[str, object]]) -> None:
     headers = list(rows[0].keys())
-    with open("optimization_results.csv", "w", newline="") as f:
+
+    # Pfad zum Projektordner (wo dieses Skript liegt)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(base_dir, "results")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "optimization_results.csv")
+
+    with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
@@ -50,7 +59,7 @@ def _optimise_with_backtrader() -> List[Dict[str, object]]:
     cerebro.adddata(bt.feeds.PandasData(dataname=data))
     cerebro.optstrategy(
         MeanReversion,
-        z_entry=[1.0, 1.5, 2.0],
+        z_entry=[1.0, 1.25, 1.5, 1.75, 2.0],
         sl_distance=[1.0, 2.0],
         tp_distance=[2.0, 4.0],
     )
@@ -95,7 +104,7 @@ def _optimise_with_backtrader() -> List[Dict[str, object]]:
                     "end_capital": round(final_value, 2),
                 }
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             print(
                 f"⚠️ Fehler bei Parametern: z={params.z_entry}, "
                 f"sl={params.sl_distance}, tp={params.tp_distance}"
@@ -130,7 +139,7 @@ def _optimise_with_python(price_data: Iterable[Dict[str, float]]) -> List[Dict[s
                     "end_capital": stats["end_capital"],
                 }
             )
-        except Exception as exc:  # pragma: no cover - defensive
+        except Exception as exc:
             print(
                 f"⚠️ Fehler bei Parametern: z={z_entry}, "
                 f"sl={sl_distance}, tp={tp_distance}"
@@ -144,18 +153,17 @@ def main() -> None:
     rows: List[Dict[str, object]] = _optimise_with_backtrader()
 
     if not rows:
-        price_data = load_price_bars("AAPL", "2020-01-01", "2023-01-01")
+        price_data = load_price_bars("AAPL", "2015-01-01", "2025-01-11")
         rows = _optimise_with_python(price_data)
 
     if rows:
         rows.sort(key=lambda item: item["end_capital"], reverse=True)
         _format_table(rows)
         _write_csv(rows)
-        print("\n✅ Ergebnisse gespeichert als: optimization_results.csv")
+        print("\n✅ Ergebnisse gespeichert als: results/optimization_results.csv")
     else:
         print("⚠️ Keine gültigen Ergebnisse generiert.")
 
 
 if __name__ == "__main__":
     main()
-
