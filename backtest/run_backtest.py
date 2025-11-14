@@ -1,77 +1,56 @@
-from notebooks.data_loader.data_loader import get_data
-from notebooks.strategies.mean_reversion import MeanReversion
+import sys
+import os
 import backtrader as bt
 import pandas as pd
 
+# Projektverzeichnis zum Pfad hinzufügen
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from data_loader.data_loader import get_data
+from strategies.mean_reversion import MeanReversion
+
 # 1. Daten laden
-df = get_data("AAPL", "2020-01-01", "2023-01-01")
-bt_data = bt.feeds.PandasData(dataname=df)
+data = get_data("AAPL", "2020-01-01", "2023-01-01")
+bt_data = bt.feeds.PandasData(dataname=data)
 
 # 2. Cerebro vorbereiten
 cerebro = bt.Cerebro()
 cerebro.adddata(bt_data)
+cerebro.addstrategy(MeanReversion)
 
-# 3. Strategie mit Parametern optimieren
-cerebro.optstrategy(
-    MeanReversion,
-    z_entry=[1.0, 1.5, 2.0],
-    sl_distance=[1.0, 2.0],
-    tp_distance=[2.0, 4.0],
-)
-
-# 4. Startgeld und Sizer
+# 3. Broker und Sizer
 cerebro.broker.setcash(10000)
 cerebro.addsizer(bt.sizers.FixedSize, stake=10)
 
-# 5. Analyzer hinzufügen
-cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+# 4. Analyzer hinzufügen
+cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
+cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
 
-# 6. Backtest starten
+# 5. Backtest starten
+print("Startkapital:", cerebro.broker.getvalue())
 results = cerebro.run()
+final_value = cerebro.broker.getvalue()
+print("Endkapital:", final_value)
 
-# 7. Ergebnisse sammeln
-rows = []
+# 6. Auswertung
+strat = results[0]
+trades = strat.analyzers.trades.get_analysis()
+drawdown = strat.analyzers.drawdown.get_analysis()
 
-for strat in results:
-    s = strat[0]
-    p = s.params
+total = trades.total.closed or 0
+won = trades.won.total or 0
+winrate = (won / total * 100) if total else 0
+dd_percent = drawdown.max.drawdown if drawdown.max else 0
 
-    try:
-        trades = s.analyzers.trades.get_analysis()
-        dd = s.analyzers.drawdown.get_analysis()
+print("\n--- Statistik ---")
+print(f"Trades gesamt: {total}")
+print(f"Gewonnen: {won} | Winrate: {winrate:.2f}%")
+print(f"Max Drawdown: {dd_percent:.2f}%")
 
-        total = trades.total.closed or 0
-        won = trades.won.total or 0
-        lost = trades.lost.total or 0
-        winrate = (won / total * 100) if total else 0
-        dd_percent = dd.max.drawdown if dd.max else 0
-        final_value = s.broker.getvalue()
+# 7. Optional: CSV speichern
+results_dir = os.path.join(os.path.dirname(__file__), "results")
+os.makedirs(results_dir, exist_ok=True)
+output_path = os.path.join(results_dir, "backtest_results.csv")
 
-        rows.append({
-            'z_entry': p.z_entry,
-            'sl_distance': p.sl_distance,
-            'tp_distance': p.tp_distance,
-            'total_trades': total,
-            'winrate': round(winrate, 2),
-            'drawdown_%': round(dd_percent, 2),
-            'end_capital': round(final_value, 2)
-        })
-
-    except Exception as e:
-        print(f"Fehler bei z={p.z_entry}, sl={p.sl_distance}, tp={p.tp_distance}")
-        print(str(e))
-
-# 8. Ergebnisse als Tabelle anzeigen und speichern
-df_results = pd.DataFrame(rows)
-df_results = df_results.sort_values(by='end_capital', ascending=False)
-print(df_results)
-
-# 9. Optional speichern
-#df_results.to_csv("optimization_results.csv", index=False)
-#print("\nErgebnisse gespeichert als: optimization_results.csv")
-
-
-# 7. Chart anzeigen
-#cerebro.plot(style='candlestick')
-
+pd.DataFrame(data).to_csv(output_path)
+print(f"\n✅ Backtest-Daten gespeichert unter: {output_path}")

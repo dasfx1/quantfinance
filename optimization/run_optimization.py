@@ -1,11 +1,14 @@
-
 import csv
 import os
+import sys
 from itertools import product
 from typing import Dict, Iterable, List, Sequence
 
-from notebooks.data_loader.data_loader import get_data, is_dataframe, load_price_bars
-from notebooks.strategies.mean_reversion import MeanReversion, MeanReversionParams, run_mean_reversion
+# Projektverzeichnis zum Python-Pfad hinzufügen
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from data_loader.data_loader import get_data, is_dataframe, load_price_bars
+from strategies.mean_reversion import MeanReversion, MeanReversionParams, run_mean_reversion
 
 try:
     import backtrader as bt
@@ -35,7 +38,6 @@ def _format_table(rows: Sequence[Dict[str, object]]) -> None:
 def _write_csv(rows: Sequence[Dict[str, object]]) -> None:
     headers = list(rows[0].keys())
 
-    # Pfad zum Projektordner (wo dieses Skript liegt)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     output_dir = os.path.join(base_dir, "results")
     os.makedirs(output_dir, exist_ok=True)
@@ -93,17 +95,15 @@ def _optimise_with_backtrader() -> List[Dict[str, object]]:
 
             final_value = strat.broker.getvalue()
 
-            rows.append(
-                {
-                    "z_entry": params.z_entry,
-                    "sl_distance": params.sl_distance,
-                    "tp_distance": params.tp_distance,
-                    "total_trades": total_trades,
-                    "winrate": round(winrate, 2),
-                    "drawdown_%": round(dd_percent, 2),
-                    "end_capital": round(final_value, 2),
-                }
-            )
+            rows.append({
+                "z_entry": params.z_entry,
+                "sl_distance": params.sl_distance,
+                "tp_distance": params.tp_distance,
+                "total_trades": total_trades,
+                "winrate": round(winrate, 2),
+                "drawdown_%": round(dd_percent, 2),
+                "end_capital": round(final_value, 2),
+            })
         except Exception as exc:
             print(
                 f"⚠️ Fehler bei Parametern: z={params.z_entry}, "
@@ -128,17 +128,15 @@ def _optimise_with_python(price_data: Iterable[Dict[str, float]]) -> List[Dict[s
 
         try:
             stats = run_mean_reversion(price_data, params)
-            rows.append(
-                {
-                    "z_entry": z_entry,
-                    "sl_distance": sl_distance,
-                    "tp_distance": tp_distance,
-                    "total_trades": stats["total_trades"],
-                    "winrate": stats["winrate"],
-                    "drawdown_%": stats["drawdown_%"],
-                    "end_capital": stats["end_capital"],
-                }
-            )
+            rows.append({
+                "z_entry": z_entry,
+                "sl_distance": sl_distance,
+                "tp_distance": tp_distance,
+                "total_trades": stats["total_trades"],
+                "winrate": stats["winrate"],
+                "drawdown_%": stats["drawdown_%"],
+                "end_capital": stats["end_capital"],
+            })
         except Exception as exc:
             print(
                 f"⚠️ Fehler bei Parametern: z={z_entry}, "
