@@ -47,10 +47,18 @@ print(f"Trades gesamt: {total}")
 print(f"Gewonnen: {won} | Winrate: {winrate:.2f}%")
 print(f"Max Drawdown: {dd_percent:.2f}%")
 
-# 7. Optional: CSV speichern
+# 7. Auswertung als CSV speichern
 results_dir = os.path.join(os.path.dirname(__file__), "results")
 os.makedirs(results_dir, exist_ok=True)
 output_path = os.path.join(results_dir, "backtest_results.csv")
 
-pd.DataFrame(data).to_csv(output_path)
-print(f"\n✅ Backtest-Daten gespeichert unter: {output_path}")
+df_result = pd.DataFrame([{
+    "total_trades": total,
+    "won": won,
+    "winrate": round(winrate, 2),
+    "drawdown_%": round(dd_percent, 2),
+    "end_capital": round(final_value, 2)
+}])
+
+df_result.to_csv(output_path, index=False)
+print(f"\n✅ Backtest-Ergebnisse gespeichert unter: {output_path}")
