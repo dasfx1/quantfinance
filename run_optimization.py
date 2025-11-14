@@ -1,79 +1,166 @@
-from data_loader import get_data
-from mean_reversion import MeanReversion
-import backtrader as bt
-import pandas as pd
+import csv
+from itertools import product
+from typing import Dict, Iterable, List, Sequence
 
-# 1. Daten laden
-df = get_data("AAPL", "2020-01-01", "2023-01-01")
-bt_data = bt.feeds.PandasData(dataname=df)
+from data_loader import get_data, is_dataframe, load_price_bars
+from mean_reversion import MeanReversion, MeanReversionParams, run_mean_reversion
 
-# 2. Cerebro vorbereiten
-cerebro = bt.Cerebro(maxcpus=1)
-cerebro.adddata(bt_data)
+try:  # pragma: no cover - optional dependency
+    import backtrader as bt  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - executed when backtrader missing
+    bt = None  # type: ignore
 
-# 3. Strategie mit Parametern optimieren
-cerebro.optstrategy(
-    MeanReversion,
-    z_entry=[1.0, 1.5, 2.0],
-    sl_distance=[1.0, 2.0],
-    tp_distance=[2.0, 4.0],
-)
 
-# 4. Kapital und Positionsgröße
-cerebro.broker.setcash(10000)
-cerebro.addsizer(bt.sizers.FixedSize, stake=10)
+def _format_table(rows: Sequence[Dict[str, object]]) -> None:
+    headers = list(rows[0].keys())
+    widths = {
+        header: max([len(header)] + [len(str(row[header])) for row in rows])
+        for header in headers
+    }
 
-# 5. Analyzer aktivieren
-cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+    def format_row(row: Dict[str, object]) -> str:
+        return " | ".join(str(row[h]).rjust(widths[h]) for h in headers)
 
-# 6. Run starten
-results = cerebro.run()
+    header_line = format_row({h: h for h in headers})
+    separator = "-+-".join("-" * widths[h] for h in headers)
 
-# 7. Ergebnisse einsammeln
-rows = []
+    print(header_line)
+    print(separator)
+    for row in rows:
+        print(format_row(row))
 
-for result in results:
-    strat = result[0]
 
-    # Nur echte Strategieobjekte weiterverarbeiten
-    if not isinstance(strat, bt.Strategy):
-        continue
+def _write_csv(rows: Sequence[Dict[str, object]]) -> None:
+    headers = list(rows[0].keys())
+    with open("optimization_results.csv", "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
 
-    p = strat.params
 
-    try:
-        trades = strat.analyzers.trades.get_analysis()
-        dd = strat.analyzers.drawdown.get_analysis()
+def _optimise_with_backtrader() -> List[Dict[str, object]]:
+    if bt is None or MeanReversion is None:
+        return []
 
-        total = trades.total.closed or 0
-        won = trades.won.total or 0
-        lost = trades.lost.total or 0
-        winrate = (won / total * 100) if total else 0
-        dd_percent = dd.max.drawdown if dd.max else 0
-        final_value = strat.broker.getvalue()
+    data = get_data("AAPL", "2020-01-01", "2023-01-01")
+    if not is_dataframe(data):
+        return []
 
-        rows.append({
-            'z_entry': p.z_entry,
-            'sl_distance': p.sl_distance,
-            'tp_distance': p.tp_distance,
-            'total_trades': total,
-            'winrate': round(winrate, 2),
-            'drawdown_%': round(dd_percent, 2),
-            'end_capital': round(final_value, 2)
-        })
+    cerebro = bt.Cerebro(maxcpus=1)
+    cerebro.adddata(bt.feeds.PandasData(dataname=data))
+    cerebro.optstrategy(
+        MeanReversion,
+        z_entry=[1.0, 1.5, 2.0],
+        sl_distance=[1.0, 2.0],
+        tp_distance=[2.0, 4.0],
+    )
 
-    except Exception as e:
-        print(f"⚠️ Fehler bei Parametern: z={p.z_entry}, sl={p.sl_distance}, tp={p.tp_distance}")
-        print(str(e))
+    cerebro.broker.setcash(10_000)
+    cerebro.addsizer(bt.sizers.FixedSize, stake=10)
 
-# 8. Ausgabe + Export
-if rows:
-    df_results = pd.DataFrame(rows)
-    df_results = df_results.sort_values(by='end_capital', ascending=False)
-    print(df_results)
-    df_results.to_csv("optimization_results.csv", index=False)
-    print("\n✅ Ergebnisse gespeichert als: optimization_results.csv")
-else:
-    print("⚠️ Keine gültigen Ergebnisse generiert.")
+    cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
+    cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
+
+    results = cerebro.run()
+
+    rows: List[Dict[str, object]] = []
+    for result in results:
+        strat = result[0]
+        if not isinstance(strat, bt.Strategy):
+            continue
+
+        params = strat.params
+
+        try:
+            trades = strat.analyzers.trades.get_analysis()
+            drawdown = strat.analyzers.drawdown.get_analysis()
+
+            total_trades = getattr(trades.total, "closed", 0) or 0
+            wins = getattr(trades.won, "total", 0) or 0
+            winrate = (wins / total_trades * 100) if total_trades else 0.0
+
+            dd_max = getattr(drawdown, "max", None)
+            dd_percent = getattr(dd_max, "drawdown", 0.0) if dd_max else 0.0
+
+            final_value = strat.broker.getvalue()
+
+            rows.append(
+                {
+                    "z_entry": params.z_entry,
+                    "sl_distance": params.sl_distance,
+                    "tp_distance": params.tp_distance,
+                    "total_trades": total_trades,
+                    "winrate": round(winrate, 2),
+                    "drawdown_%": round(dd_percent, 2),
+                    "end_capital": round(final_value, 2),
+                }
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            print(
+                f"⚠️ Fehler bei Parametern: z={params.z_entry}, "
+                f"sl={params.sl_distance}, tp={params.tp_distance}"
+            )
+            print(str(exc))
+
+    return rows
+
+
+def _optimise_with_python(price_data: Iterable[Dict[str, float]]) -> List[Dict[str, object]]:
+    rows: List[Dict[str, object]] = []
+
+    for z_entry, sl_distance, tp_distance in product(
+        [1.0, 1.5, 2.0], [1.0, 2.0], [2.0, 4.0]
+    ):
+        params = MeanReversionParams(
+            z_entry=z_entry,
+            sl_distance=sl_distance,
+            tp_distance=tp_distance,
+        )
+
+        try:
+            stats = run_mean_reversion(price_data, params)
+            rows.append(
+                {
+                    "z_entry": z_entry,
+                    "sl_distance": sl_distance,
+                    "tp_distance": tp_distance,
+                    "total_trades": stats["total_trades"],
+                    "winrate": stats["winrate"],
+                    "drawdown_%": stats["drawdown_%"],
+                    "end_capital": stats["end_capital"],
+                }
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            print(
+                f"⚠️ Fehler bei Parametern: z={z_entry}, "
+                f"sl={sl_distance}, tp={tp_distance}"
+            )
+            print(str(exc))
+
+    return rows
+
+
+def main() -> None:
+    rows: List[Dict[str, object]] = _optimise_with_backtrader()
+
+    if not rows:
+        try:
+            price_data = load_price_bars(
+                "AAPL", "2020-01-01", "2023-01-01", prefer_local=True
+            )
+        except FileNotFoundError:
+            price_data = load_price_bars("AAPL", "2020-01-01", "2023-01-01")
+        rows = _optimise_with_python(price_data)
+
+    if rows:
+        rows.sort(key=lambda item: item["end_capital"], reverse=True)
+        _format_table(rows)
+        _write_csv(rows)
+        print("\n✅ Ergebnisse gespeichert als: optimization_results.csv")
+    else:
+        print("⚠️ Keine gültigen Ergebnisse generiert.")
+
+
+if __name__ == "__main__":
+    main()
 
