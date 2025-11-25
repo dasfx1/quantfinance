@@ -1,98 +1,7 @@
-"""Mean-reversion helpers used by the optimisation scripts.
-
-The module offers two execution paths:
-
-* If :mod:`backtrader` is available we expose the original ``MeanReversion``
-  strategy so the legacy optimisation pipeline keeps working unchanged.
-* Independently of Backtrader we provide a tiny pure-Python simulator so the
-  examples remain runnable in restricted environments (such as the execution
-  sandbox used for the kata).
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Sequence
-
-try:  # pragma: no cover - optional dependency
-    import backtrader as bt  # type: ignore
-except ModuleNotFoundError:  # pragma: no cover - executed when backtrader missing
-    bt = None  # type: ignore
-
-
-if bt is not None:  # pragma: no cover - exercised only when backtrader available
-    class ZScore(bt.Indicator):
-        """Classic z-score indicator reused by the Backtrader strategy."""
-
-        lines = ("zscore",)
-        params = (("period", 20),)
-
-        def __init__(self) -> None:
-            sma = bt.indicators.SMA(self.data, period=self.p.period)
-            std = bt.indicators.StdDev(self.data, period=self.p.period)
-            self.lines.zscore = (self.data - sma) / std
-
-
-    class MeanReversion(bt.Strategy):
-        """Original Backtrader mean-reversion strategy implementation."""
-
-        params = (
-            ("period", 20),
-            ("z_entry", 2),
-            ("z_exit", 0.5),
-            ("sl_distance", 1.0),
-            ("tp_distance", 2.0),
-        )
-
-        def __init__(self) -> None:
-            self.zscore = ZScore(self.data.close, period=self.p.period)
-            self.adx = bt.indicators.ADX(self.data, period=14)
-
-            self.sl_price = None
-            self.tp_price = None
-
-        def next(self) -> None:
-            if len(self) < self.p.period:
-                return
-
-            if self.adx[0] >= 20:
-                return
-
-            price = self.data.close[0]
-
-            if not self.position:
-                if self.zscore[0] < -self.p.z_entry:
-                    self.buy()
-                    self.sl_price = price - self.p.sl_distance
-                    self.tp_price = price + self.p.tp_distance
-
-                elif self.zscore[0] > self.p.z_entry:
-                    self.sell()
-                    self.sl_price = price + self.p.sl_distance
-                    self.tp_price = price - self.p.tp_distance
-
-            else:
-                if self.position.size > 0:
-                    if price <= self.sl_price or price >= self.tp_price:
-                        self.close()
-                elif self.position.size < 0:
-                    if price >= self.sl_price or price <= self.tp_price:
-                        self.close()
-
-
-else:  # pragma: no cover - executed in the sandbox
-    MeanReversion = None  # type: ignore
-
-
-@dataclass(frozen=True)
-class MeanReversionParams:
-    period: int = 20
-    z_entry: float = 1.5
-    z_exit: float = 0.5
-    sl_distance: float = 2.0
-    tp_distance: float = 4.0
-    stake: int = 10
-    initial_cash: float = 10_000.0
 
 
 def _rolling_zscore(values: Sequence[float], period: int) -> List[float]:
@@ -101,7 +10,7 @@ def _rolling_zscore(values: Sequence[float], period: int) -> List[float]:
         if idx + 1 < period:
             zscores[idx] = 0.0
             continue
-        window = values[idx + 1 - period: idx + 1]
+        window = values[idx + 1 - period : idx + 1]
         mean = sum(window) / period
         variance = sum((v - mean) ** 2 for v in window) / period
         std = variance ** 0.5
@@ -109,7 +18,9 @@ def _rolling_zscore(values: Sequence[float], period: int) -> List[float]:
     return zscores
 
 
-def _calculate_adx(highs: Sequence[float], lows: Sequence[float], closes: Sequence[float], period: int = 14) -> List[float]:
+def _calculate_adx(
+    highs: Sequence[float], lows: Sequence[float], closes: Sequence[float], period: int = 14
+) -> List[float]:
     length = len(closes)
     adx = [0.0] * length
     if length <= period:
@@ -127,13 +38,13 @@ def _calculate_adx(highs: Sequence[float], lows: Sequence[float], closes: Sequen
         tr[i] = max(
             highs[i] - lows[i],
             abs(highs[i] - closes[i - 1]),
-            abs(lows[i] - closes[i - 1])
+            abs(lows[i] - closes[i - 1]),
         )
 
     atr = [0.0] * length
-    atr[period] = sum(tr[1:period + 1]) / period
-    plus_dm_smooth = sum(plus_dm[1:period + 1])
-    minus_dm_smooth = sum(minus_dm[1:period + 1])
+    atr[period] = sum(tr[1 : period + 1]) / period
+    plus_dm_smooth = sum(plus_dm[1 : period + 1])
+    minus_dm_smooth = sum(minus_dm[1 : period + 1])
 
     plus_di = [0.0] * length
     minus_di = [0.0] * length
@@ -165,7 +76,41 @@ def _calculate_adx(highs: Sequence[float], lows: Sequence[float], closes: Sequen
     return adx
 
 
-def run_mean_reversion(prices: Iterable[Dict[str, float]], params: MeanReversionParams) -> Dict[str, float]:
+@dataclass(frozen=True)
+class MeanReversionParams:
+    period: int = 20
+    z_entry: float = 1.5
+    z_exit: float = 0.5
+    sl_distance: float = 2.0
+    tp_distance: float = 4.0
+    stake: int = 10
+    initial_cash: float = 10_000.0
+
+
+@dataclass
+class MeanReversionReport:
+    total_trades: int
+    wins: int
+    losses: int
+    winrate: float
+    drawdown_percent: float
+    end_capital: float
+    equity_curve: List[float]
+
+    def as_row(self) -> Dict[str, float]:
+        return {
+            "total_trades": self.total_trades,
+            "wins": self.wins,
+            "losses": self.losses,
+            "winrate": round(self.winrate, 2),
+            "drawdown_%": round(self.drawdown_percent, 2),
+            "end_capital": round(self.end_capital, 2),
+        }
+
+
+def simulate_mean_reversion(
+    prices: Iterable[Dict[str, float]], params: MeanReversionParams
+) -> MeanReversionReport:
     data = list(prices) if not isinstance(prices, list) else prices
     closes = [row["Close"] for row in data]
     highs = [row["High"] for row in data]
@@ -267,11 +212,12 @@ def run_mean_reversion(prices: Iterable[Dict[str, float]], params: MeanReversion
 
     winrate = (wins / total_trades * 100) if total_trades else 0.0
 
-    return {
-        "total_trades": total_trades,
-        "wins": wins,
-        "losses": losses,
-        "winrate": round(winrate, 2),
-        "drawdown_%": round(max_drawdown, 2),
-        "end_capital": round(cash, 2),
-    }
+    return MeanReversionReport(
+        total_trades=total_trades,
+        wins=wins,
+        losses=losses,
+        winrate=winrate,
+        drawdown_percent=round(max_drawdown, 2),
+        end_capital=round(cash, 2),
+        equity_curve=equity_curve,
+    )
