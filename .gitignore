@@ -21,3 +21,8 @@ results/*.csv
 *.tmp
 *.bak
 *.swp
+
+# Neue Artefakte
+reports/
+dist/
+*.mq5
